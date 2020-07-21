@@ -31,12 +31,76 @@
 
 #include <iostream>
 
+#include <engine/TeamObserver.h>
+#include <engine/allocationauthority/AuthorityManager.h> //remove
+#include <engine/constraintmodul/VariableSyncModule.h>
+#include <engine/syncmodule/SyncModule.h>
+
 //#define CAPNZERO_PROXY_DEBUG
 
 namespace alicaCapnzeroProxy
 {
 using std::make_shared;
 using std::string;
+
+// remove ----
+using std::shared_ptr;
+
+void AlicaCapnzeroCommunication::onAuthorityInfoReceived(const alica::AllocationAuthorityInfo& aai) const // remove
+{
+    std::cout << "\033[93mRecieving AAI: " << aai.senderID << ' ' << aai.authority << ' ' << aai.parentState << ' ' << aai.planType << ' ' << aai.planId
+                  << "\033[0m\n";
+    if (!ae) {
+        // case for testing without engine
+        std::cout << "\033[93mRecieving AAI: " << aai.senderID << ' ' << aai.authority << ' ' << aai.parentState << ' ' << aai.planType << ' ' << aai.planId
+                  << "\033[0m\n";
+    } else {
+        ae->getAuth()->handleIncomingAuthorityMessage(aai);
+    }
+}
+
+void AlicaCapnzeroCommunication::onSyncTalkReceived(shared_ptr<alica::SyncTalk> st) const
+{
+    if (!ae) {
+        // case for testing without engine
+        std::cout << "\033[93mReceiving ST: " << st->senderID << ' ' << st->syncData.size() << "\033[0m\n";
+    } else {
+        ae->getSyncModul()->onSyncTalk(st);
+    }
+}
+
+void AlicaCapnzeroCommunication::onSyncReadyReceived(shared_ptr<alica::SyncReady> sr) const
+{
+    if (!ae) {
+        // case for testing without engine
+        std::cout << "\033[93mReceiving SR: " << sr->senderID << ' ' << sr->synchronisationID << "\033[0m\n";
+    } else {
+        ae->getSyncModul()->onSyncReady(sr);
+    }
+}
+
+void AlicaCapnzeroCommunication::onPlanTreeInfoReceived(shared_ptr<alica::PlanTreeInfo> pti) const
+{
+    std::cout << "\033[93mReceiving PTI: " << pti->senderID->hash() << ' ' << pti->succeededEPs.size() << ' ' << pti->stateIDs.size() << "\033[0m\n";
+    if (!ae) {
+        // case for testing without engine
+        std::cout << "\033[93mReceiving PTI: " << pti->senderID->hash() << ' ' << pti->succeededEPs.size() << ' ' << pti->stateIDs.size() << "\033[0m\n";
+    } else {
+        ae->getTeamObserver()->handlePlanTreeInfo(pti);
+    }
+}
+
+void AlicaCapnzeroCommunication::onSolverResult(const alica::SolverResult& sr) const
+{
+    if (!ae) {
+        // case for testing without engine
+        std::cout << "\033[93mReceiving SR: " << sr.senderID << ' ' << sr.vars.size() << "\033[0m\n";
+    } else {
+        ae->getResultStore()->onSolverResult(sr);
+    }
+}
+
+// ---
 
 AlicaCapnzeroCommunication::AlicaCapnzeroCommunication(alica::AlicaEngine* ae)
         : IAlicaCommunication(ae)
@@ -71,15 +135,16 @@ AlicaCapnzeroCommunication::AlicaCapnzeroCommunication(alica::AlicaEngine* ae)
     this->solverResultTopic = (*sc)["AlicaCapnzProxy"]->get<std::string>("Topics.solverResultTopic", NULL);
 
     // Setup publishers:
-    std::cout << "AlicaCapnzeroCommunication: The publisher:\n";
+    std::cout << "AlicaCapnzeroCommunication: The publisher\n";
     this->AlicaPublisher = new capnzero::Publisher(this->ctx);
     this->AlicaPublisher->setDefaultGroup("ALICA");
 
     // Open sockets:
+    std::cout << "AlicaCapnzeroCommunication: Open sockets  " << this->url << std::endl;
     this->AlicaPublisher->bind(capnzero::CommType::UDP, this->url);
 
     // Setup Subscribers:
-    std::cout << "AlicaCapnzeroCommunication: The subscribers:\n";
+    std::cout << "AlicaCapnzeroCommunication: The subscribers\n";
     this->AllocationAuthorityInfoSubscriber = new capnzero::Subscriber(this->ctx, this->allocationAuthorityInfoTopic);
     this->PlanTreeInfoSubscriber = new capnzero::Subscriber(this->ctx, this->planTreeInfoTopic);
     this->SyncReadySubscriber = new capnzero::Subscriber(this->ctx, this->syncReadyTopic);
@@ -87,6 +152,7 @@ AlicaCapnzeroCommunication::AlicaCapnzeroCommunication(alica::AlicaEngine* ae)
     this->SolverResultSubscriber = new capnzero::Subscriber(this->ctx, this->solverResultTopic);
 
     // connecting the subscribers:
+    std::cout << "AlicaCapnzeroCommunication: connecting subscribers  " << this->url << std::endl;
     this->AllocationAuthorityInfoSubscriber->connect(capnzero::CommType::UDP, this->url);
     this->PlanTreeInfoSubscriber->connect(capnzero::CommType::UDP, this->url);
     this->SyncReadySubscriber->connect(capnzero::CommType::UDP, this->url);
@@ -94,6 +160,7 @@ AlicaCapnzeroCommunication::AlicaCapnzeroCommunication(alica::AlicaEngine* ae)
     this->SolverResultSubscriber->connect(capnzero::CommType::UDP, this->url);
 
     // subscribing the subscribers:
+    std::cout << "AlicaCapnzeroCommunication: subscribing subscribers\n";
     this->AllocationAuthorityInfoSubscriber->subscribe(&AlicaCapnzeroCommunication::handleAllocationAuthority, &(*this));
     this->PlanTreeInfoSubscriber->subscribe(&AlicaCapnzeroCommunication::handlePlanTreeInfo, &(*this));
     this->SyncReadySubscriber->subscribe(&AlicaCapnzeroCommunication::handleSyncReady, &(*this));
@@ -180,12 +247,14 @@ void AlicaCapnzeroCommunication::sendAlicaEngineInfo(const alica::AlicaEngineInf
 #ifdef CAPNZERO_PROXY_DEBUG
         std::cout << "AlicaCapnzeroCommunication: Sending AEI: " << msg.toString().flatten().cStr() << '\n';
 #endif
+        std::cout << "\033[0;34m" << "ACZ-Com:: Sending AEI: " << bi.senderID << msg.toString().flatten().cStr()  << "\033[0m" << std::endl;
         this->AlicaPublisher->send(msgBuilder, this->alicaEngineInfoTopic);
     }
 }
 
 void AlicaCapnzeroCommunication::sendPlanTreeInfo(const alica::PlanTreeInfo& pti) const
 {
+    std::cout << "\033[0;34m" << "ACZ-Com:: Sending PTI: " << pti.senderID  <<"\033[0m" << std::endl;
     ::capnp::MallocMessageBuilder msgBuilder;
     alica_capnz_msgs::PlanTreeInfo::Builder msg = msgBuilder.initRoot<alica_capnz_msgs::PlanTreeInfo>();
     capnzero::ID::Builder sender = msg.initSenderId();
@@ -204,6 +273,7 @@ void AlicaCapnzeroCommunication::sendPlanTreeInfo(const alica::PlanTreeInfo& pti
 #ifdef CAPNZERO_PROXY_DEBUG
         std::cout << "AlicaCapnzeroCommunication: Sending PTI: " << msg.toString().flatten().cStr() << '\n';
 #endif
+        std::cout << "\033[0;34m" << "ACZ-Com:: Sending PTI: " << pti.senderID << msg.toString().flatten().cStr()  << "\033[0m" << std::endl;
         this->AlicaPublisher->send(msgBuilder, this->planTreeInfoTopic);
     }
 }
@@ -221,6 +291,7 @@ void AlicaCapnzeroCommunication::sendRoleSwitch(const alica::RoleSwitch& rs) con
 #ifdef CAPNZERO_PROXY_DEBUG
         std::cout << "AlicaCapnzeroCommunication: Sending RS: " << msg.toString().flatten().cStr() << '\n';
 #endif
+        std::cout << "\033[0;34m" << "ACZ-Com:: Sending RS: " << rs.senderID << msg.toString().flatten().cStr()  << "\033[0m" << std::endl;
         this->AlicaPublisher->send(msgBuilder, this->ownRoleTopic);
     }
 }
@@ -298,12 +369,13 @@ void AlicaCapnzeroCommunication::handleAllocationAuthority(::capnp::FlatArrayMes
 {
     alica::AllocationAuthorityInfo aai;
     alica_capnz_msgs::AllocationAuthorityInfo::Reader reader = msg.getRoot<alica_capnz_msgs::AllocationAuthorityInfo>();
-    aai.senderID = this->ae->getIDFromBytes(reader.getSenderId().getValue().asBytes().begin(), reader.getSenderId().getValue().size(),
-                                            static_cast<uint8_t>(reader.getSenderId().getType()));
+    aai.senderID = this->ae->getIDFromBytes(
+            reader.getSenderId().getValue().asBytes().begin(), reader.getSenderId().getValue().size(), static_cast<uint8_t>(reader.getSenderId().getType()));
     aai.planId = reader.getPlanId();
     aai.planType = reader.getPlanType();
     aai.parentState = reader.getParentState();
-    aai.authority = this->ae->getIDFromBytes(reader.getAuthority().getValue().asBytes().begin(), reader.getAuthority().getValue().size(), static_cast<uint8_t>(reader.getAuthority().getType()));
+    aai.authority = this->ae->getIDFromBytes(
+            reader.getAuthority().getValue().asBytes().begin(), reader.getAuthority().getValue().size(), static_cast<uint8_t>(reader.getAuthority().getType()));
     ::capnp::List<alica_capnz_msgs::EntrypointRobots>::Reader entryPointRobots = reader.getEntrypointRobots();
     for (unsigned int i = 0; i < entryPointRobots.size(); ++i) {
         aai.entryPointRobots.emplace_back();
@@ -334,7 +406,14 @@ void AlicaCapnzeroCommunication::handlePlanTreeInfo(::capnp::FlatArrayMessageRea
 
     ptiPtr->senderID = ae->getIDFromBytes(
             reader.getSenderId().getValue().asBytes().begin(), reader.getSenderId().getValue().size(), (uint8_t) reader.getSenderId().getType());
-
+    std::cout << "\033[0;32m" << "ACapnComm: receive   reader:" << reader.toString().flatten().cStr() << "\033[0m" << std::endl;
+    // ::capnp::Data::Reader r = reader.getSenderId().getValue();
+    kj::ArrayPtr<const char> chars = reader.getSenderId().getValue().asChars();
+    std::cout << "\033[0;32m" << "ACapnComm: receive         value:" << chars.begin() << "\033[0m" << std::endl;
+    std::cout << "\033[0;32m" << "ACapnComm: receive          hash:" << ptiPtr->senderID.hash() << "  " << "\033[0m" << std::endl;
+    std::cout << "\033[0;32m" << "ACapnComm: receive           raw:" << ptiPtr->senderID.get()->getRaw() << "  " << "\033[0m" << std::endl;
+    std::cout << "\033[0;32m" << "ACapnComm: receive      senderID:" << ptiPtr->senderID << "\033[0m"<< std::endl;
+//    std::cout << "\033[0;32m" << "ACapnComm: receive: " << sID << "\032[0m"<< std::endl;
     ::capnp::List<int64_t>::Reader states = reader.getStateIds();
     for (unsigned int i = 0; i < states.size(); ++i) {
         ptiPtr->stateIDs.push_back(states[i]);
@@ -347,7 +426,7 @@ void AlicaCapnzeroCommunication::handlePlanTreeInfo(::capnp::FlatArrayMessageRea
 
     if (this->isRunning) {
 #ifdef CAPNZERO_PROXY_DEBUG
-        std::cout <<"AlicaCapnzeroCommunication: receive: " << reader.toString().flatten().cStr() << std::endl;
+        std::cout << "AlicaCapnzeroCommunication: receive: " << reader.toString().flatten().cStr() << std::endl;
 #endif
         this->onPlanTreeInfoReceived(ptiPtr);
     }
@@ -363,7 +442,7 @@ void AlicaCapnzeroCommunication::handleSyncReady(::capnp::FlatArrayMessageReader
 
     if (this->isRunning) {
 #ifdef CAPNZERO_PROXY_DEBUG
-        std::cout << "AlicaCapnzeroCommunication: receive: "  << reader.toString().flatten().cStr() << std::endl;
+        std::cout << "AlicaCapnzeroCommunication: receive: " << reader.toString().flatten().cStr() << std::endl;
 #endif
         this->onSyncReadyReceived(srPtr);
     }
@@ -398,8 +477,8 @@ void AlicaCapnzeroCommunication::handleSolverResult(::capnp::FlatArrayMessageRea
 {
     alica::SolverResult osr;
     alica_capnz_msgs::SolverResult::Reader reader = msg.getRoot<alica_capnz_msgs::SolverResult>();
-    osr.senderID = ae->getIDFromBytes(reader.getSenderId().getValue().asBytes().begin(), reader.getSenderId().getValue().size(),
-                                   (uint8_t) reader.getSenderId().getType());
+    osr.senderID = ae->getIDFromBytes(
+            reader.getSenderId().getValue().asBytes().begin(), reader.getSenderId().getValue().size(), (uint8_t) reader.getSenderId().getType());
 
     capnp::List<alica_capnz_msgs::SolverVar>::Reader msgSolverVars = reader.getVars();
     for (unsigned int i = 0; i < msgSolverVars.size(); ++i) {

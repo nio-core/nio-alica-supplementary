@@ -29,6 +29,13 @@ public:
     void handleSyncTalk(::capnp::FlatArrayMessageReader& msg);
     void handleSolverResult(::capnp::FlatArrayMessageReader& msg);
 
+// remove me
+    virtual void onSyncTalkReceived(std::shared_ptr<alica::SyncTalk> st) const override;
+    virtual void  onSyncReadyReceived(std::shared_ptr<alica::SyncReady> sr) const override;
+    virtual void  onAuthorityInfoReceived(const alica::AllocationAuthorityInfo& aai) const override;
+    virtual void  onPlanTreeInfoReceived(std::shared_ptr<alica::PlanTreeInfo> pti) const override;
+    virtual void  onSolverResult(const alica::SolverResult& sr) const override;
+
     virtual void startCommunication();
     virtual void stopCommunication();
 
