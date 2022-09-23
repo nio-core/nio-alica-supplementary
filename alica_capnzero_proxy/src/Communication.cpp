@@ -236,6 +236,7 @@ void Communication::handlePlanTreeInfo(::capnp::FlatArrayMessageReader& msg)
     for (auto epId : pti.succeededEPs) {
         ptiPtr->succeededEPs.push_back(epId);
     }
+    std::cout << "\033[93mCom: received PTI" << "\033[0m" << std::endl;
     this->onPlanTreeInfoReceived(ptiPtr);
 }
 
